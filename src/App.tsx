@@ -21,9 +21,59 @@ function formatDate(value: string | null): string {
 }
 
 function sortAccounts(accounts: AccountRecord[]): AccountRecord[] {
+  function confidenceWeight(value: string): number {
+    const v = value.toLowerCase();
+    if (v === "high") return 15;
+    if (v === "medium") return 10;
+    if (v === "low") return 5;
+    return 3;
+  }
+
+  function eventDepthSignal(summary: string): number {
+    const agenda = summary.toLowerCase();
+    const headings = [
+      "trade shows:",
+      "marketing events:",
+      "client/customer events:",
+      "internal events:",
+      "cadence/seasonality:",
+    ];
+
+    let score = 0;
+    for (const heading of headings) {
+      if (agenda.includes(heading)) score += 8;
+    }
+
+    if (agenda.includes("exhibitor") || agenda.includes("booth") || agenda.includes("sponsor")) {
+      score += 4;
+    }
+
+    if (agenda.includes("unknown")) {
+      score -= 4;
+    }
+
+    return Math.max(0, Math.min(40, score));
+  }
+
+  function localPriorityScore(account: AccountRecord): number {
+    const eventDepth = eventDepthSignal(account.research.eventAgendaSummary);
+    const sourceSignal = Math.min(20, account.research.sourceCount * 2);
+    const rankPct = Math.round((account.research.successPotentialRank / 10) * 100);
+    const confidencePct = Math.round((confidenceWeight(account.research.confidence) / 15) * 100);
+    const eventPct = Math.round((eventDepth / 40) * 100);
+    const sourcePct = Math.round((sourceSignal / 20) * 100);
+    const freshnessPct = 60; // mirror local board's neutral recency weight
+
+    return Math.round(
+      eventPct * 0.35 + sourcePct * 0.2 + rankPct * 0.3 + confidencePct * 0.1 + freshnessPct * 0.05,
+    );
+  }
+
   return [...accounts].sort((a, b) => {
-    const scoreDiff = b.research.opportunityScore - a.research.opportunityScore;
+    const scoreDiff = localPriorityScore(b) - localPriorityScore(a);
     if (scoreDiff !== 0) return scoreDiff;
+    const oppDiff = b.research.opportunityScore - a.research.opportunityScore;
+    if (oppDiff !== 0) return oppDiff;
     const rankDiff = b.research.successPotentialRank - a.research.successPotentialRank;
     if (rankDiff !== 0) return rankDiff;
     return a.accountName.localeCompare(b.accountName);
@@ -164,7 +214,7 @@ export function App() {
         <section className="board-view">
           <div className="metrics-grid">
             <Metric label="Researched Accounts" value={dataset.summary.totalResearchedAccounts} />
-            <Metric label="Avg Opportunity Score" value={dataset.summary.avgOpportunityScore} />
+            <Metric label="Avg Opportunity Score (raw)" value={dataset.summary.avgOpportunityScore} />
             <Metric label="High Confidence" value={dataset.summary.highConfidenceCount} />
             <Metric label="Updated" value={new Date(dataset.generatedAt).toLocaleDateString()} />
           </div>
@@ -172,7 +222,7 @@ export function App() {
           <div className="panel-grid">
             <article className="panel">
               <div className="panel-head">
-                <h2>Top Opportunity Accounts</h2>
+                <h2>Top Priority Accounts (local model)</h2>
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
