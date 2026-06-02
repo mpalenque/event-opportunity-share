@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { AccountRecord, Dataset } from "./types";
 
 type View = "board" | "case";
+const ACCESS_PASSWORD = "earthsuperside";
+const ACCESS_KEY = "opportunity_share_access";
 
 function confidenceTag(value: string): string {
   const v = value.toLowerCase();
@@ -37,8 +39,17 @@ export function App() {
   const [view, setView] = useState<View>("board");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string>("");
+  const [accessInput, setAccessInput] = useState("");
+  const [accessError, setAccessError] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    setIsAuthenticated(window.sessionStorage.getItem(ACCESS_KEY) === "granted");
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
     fetch("./data/opportunities.json")
       .then((res) => res.json())
       .then((data: Dataset) => {
@@ -50,7 +61,28 @@ export function App() {
       .catch((err) => {
         console.error("Failed to load dataset", err);
       });
-  }, []);
+  }, [isAuthenticated]);
+
+  function handleUnlock(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (accessInput.trim() === ACCESS_PASSWORD) {
+      window.sessionStorage.setItem(ACCESS_KEY, "granted");
+      setAccessError("");
+      setIsAuthenticated(true);
+      setAccessInput("");
+      return;
+    }
+
+    setAccessError("Incorrect password");
+  }
+
+  function handleLock(): void {
+    window.sessionStorage.removeItem(ACCESS_KEY);
+    setDataset(null);
+    setQuery("");
+    setSelectedId("");
+    setIsAuthenticated(false);
+  }
 
   const sorted = useMemo(() => (dataset ? sortAccounts(dataset.accounts) : []), [dataset]);
 
@@ -75,6 +107,34 @@ export function App() {
     }
   }, [selected, selectedId]);
 
+  if (!isAuthenticated) {
+    return (
+      <main className="app-shell auth-shell">
+        <section className="auth-card">
+          <p className="eyebrow">Protected access</p>
+          <h1>Enter password to view the opportunity board</h1>
+          <p className="subtitle">This shared page is locked and requires access credentials.</p>
+          <form className="auth-form" onSubmit={handleUnlock}>
+            <label htmlFor="access-pass">Password</label>
+            <input
+              id="access-pass"
+              type="password"
+              value={accessInput}
+              onChange={(e) => {
+                setAccessInput(e.target.value);
+                if (accessError) setAccessError("");
+              }}
+              placeholder="Enter password"
+              autoComplete="current-password"
+            />
+            {accessError ? <p className="auth-error">{accessError}</p> : null}
+            <button type="submit">Unlock</button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
   if (!dataset) {
     return (
       <main className="app-shell">
@@ -96,6 +156,7 @@ export function App() {
         <nav className="view-switch" aria-label="View mode">
           <button className={view === "board" ? "active" : ""} onClick={() => setView("board")}>Board</button>
           <button className={view === "case" ? "active" : ""} onClick={() => setView("case")}>Case Deep Dive</button>
+          <button onClick={handleLock}>Lock</button>
         </nav>
       </header>
 
